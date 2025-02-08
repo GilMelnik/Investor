@@ -1,2 +1,5 @@
 yfinance
+Flask
 pandas
+smtplib
+email
