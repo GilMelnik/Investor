@@ -1,10 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Stocks data</title>
+    <title>Stocks Data</title>
+    <style>
+        .progress-container {
+            width: calc(100% - 20px);
+            margin: auto;
+            max-width: 600px;
+            background-color: #ddd;
+            border-radius: 5px;
+            display: none; /* Initially hidden */
+            overflow: hidden;
+            height: 20px;
+            margin-top: 10px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            border-radius: inherit;
+            transition: width 0.5s ease-in-out;
+        }
+
+        @media (max-width: 600px) {
+            .progress-container {
+                width: calc(100% - 10px);
+                height: 15px;
+                font-size: smaller;
+            }
+
+            .progress-bar {
+                line-height: normal;
+                font-size: smaller;
+                height: inherit;
+            }
+
+            button {
+                font-size: smaller;
+                padding: 10px;
+            }
+
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>Download CSV</h1>
-    <a href="{{ url_for('download') }}">Download CSV Now</a>
+    <h1>Stocks Data Management</h1>
+
+    <div>
+        <p><strong>Last Updated:</strong> {{ last_updated }}</p>
+        <p><strong>Time Since Last Update:</strong> {{ time_since_update }}</p>
+
+        {% if download_filename %}
+            <button id="download-button" onclick="downloadFile('{{ download_filename }}')">Download CSV</button>
+        {% else %}
+            <p>No file available to download.</p>
+        {% endif %}
+
+        <button id="update-button" onclick="startUpdate()" {% if is_updating %}disabled{% endif %}>Update Data</button>
+
+        <!-- Progress bar container -->
+        <div class="progress-container" id="progress-container" {% if is_updating %}style="display: block;"{% endif %}>
+            <div id="progress-bar" class="progress-bar">{{ progress }}%</div>
+        </div>
+    </div>
+
+<script>
+let progressInterval;
+
+document.addEventListener("DOMContentLoaded", () => {
+    checkProgress();
+});
+
+function startUpdate() {
+    const button = document.getElementById("update-button");
+    button.disabled = true;
+
+    const progressContainer = document.getElementById("progress-container");
+
+    fetch('/start-update', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                monitorProgress();
+                progressContainer.style.display = "block";
+            } else {
+                response.json().then(data => alert(data.status));
+                button.disabled = false;
+                progressContainer.style.display = "none";
+            }
+        })
+        .catch(error => {
+            console.error("Error starting update:", error);
+            button.disabled = false;
+            progressContainer.style.display = "none";
+        });
+}
+
+function monitorProgress() {
+    const progressBar = document.getElementById("progress-bar");
+    const button = document.getElementById("update-button");
+
+    progressInterval = setInterval(() => {
+        fetch('/progress')
+            .then(response => response.json())
+            .then(data => {
+                progressBar.style.width = data.progress + "%";
+                progressBar.innerText = data.progress + "%";
+
+                button.disabled = data.is_updating;
+
+                if (!data.is_updating || data.progress === 100) {
+                    clearInterval(progressInterval);
+                    setTimeout(() => {
+                        document.getElementById("progress-container").style.display = "none";
+                        location.reload();
+                    }, 1000);
+                }
+            })
+            .catch(error => console.error("Error fetching progress:", error));
+    }, 1000);
+}
+
+function checkProgress() {
+    fetch('/progress')
+        .then(response => response.json())
+        .then(data => {
+            const progressContainer = document.getElementById("progress-container");
+            const button = document.getElementById("update-button");
+
+            if (data.is_updating) {
+                monitorProgress();
+                progressContainer.style.display = "block";
+                button.disabled = true;
+
+                const progressBar = document.getElementById("progress-bar");
+                progressBar.style.width = data.progress + "%";
+                progressBar.innerText = data.progress + "%";
+            }
+        })
+        .catch(error => console.error("Error checking initial progress:", error));
+}
+
+function downloadFile(filename) {
+    window.location.href = `/download/${filename}`;
+}
+</script>
+
 </body>
 </html>
