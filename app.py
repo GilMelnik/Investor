@@ -1,6 +1,7 @@
 import os
-from time import sleep
 import threading
+import logging
+from time import sleep
 from datetime import datetime
 
 import pandas as pd
@@ -12,15 +13,23 @@ OUTPUTS_PATH = "/home/melniknoob/Investor/static/reports/"
 PROGRESS = 0
 IS_UPDATING = False
 LAST_UPDATED = None  # To store the last update timestamp
+logging.basicConfig(filename='/home/melniknoob/Investor/logfile.log',
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    filemode='w')
+logger = logging.getLogger("app_log")
+logger.setLevel(logging.DEBUG)
 
 
 def get_data():
-    global PROGRESS, IS_UPDATING, LAST_UPDATED
+    global PROGRESS, IS_UPDATING, LAST_UPDATED, logger
+    logger.debug("starting get_data")
     IS_UPDATING = True  # Mark as updating
     PROGRESS = 0  # Reset progress
 
     # Fetch data for all S&P 500 companies
     sp500_tickers = get_symbols()[:5]
+    logger.debug("got sp500 symbols")
     metrics = [
         'enterpriseValue',
         'marketCap',
@@ -35,8 +44,9 @@ def get_data():
         "operatingCashflow",
     ]
     data = dict()
-
+    logger.debug("starting main loop")
     for i, symbol in enumerate(sp500_tickers):
+        logger.debug(f"calling symbol num {i}: {symbol}")
         data[symbol] = get_financial_data(symbol, metrics)
         PROGRESS = int(((i + 1) / len(sp500_tickers)) * 100)  # Update progress percentage
         sleep(3)

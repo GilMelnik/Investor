@@ -19,8 +19,8 @@ def get_symbols():
 def get_financial_data(symbol, metrics):
     stock = yf.Ticker(symbol)
     info = stock.info
-    stock_data = {metric: info.get(metric, None) for metric in metrics}
-    stock_data["symbol"] = symbol
+    stock_data = {"symbol": symbol}
+    stock_data.update({metric: info.get(metric, None) for metric in metrics})
     return stock_data
 
 
