@@ -8,107 +8,96 @@ import pandas as pd
 from flask import Flask, render_template, send_file, jsonify
 from main import save_csv, get_symbols, get_financial_data, get_last_updated_time
 
-app = Flask(__name__)
-OUTPUTS_PATH = "/home/melniknoob/Investor/static/reports/"
-PROGRESS = 0
-IS_UPDATING = False
-LAST_UPDATED = None  # To store the last update timestamp
-logging.basicConfig(filename='/home/melniknoob/Investor/logfile.log',
-                    level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    filemode='w')
-logger = logging.getLogger("app_log")
-logger.setLevel(logging.DEBUG)
 
+class DataUpdater:
+    def __init__(self, output_path, log_file):
+        self.app = Flask(__name__)
+        self.output_path = output_path
+        self.progress = 0
+        self.is_updating = False
+        self.last_updated = None
 
-def get_data():
-    global PROGRESS, IS_UPDATING, LAST_UPDATED, logger
-    logger.debug("starting get_data")
-    IS_UPDATING = True  # Mark as updating
-    PROGRESS = 0  # Reset progress
-
-    # Fetch data for all S&P 500 companies
-    sp500_tickers = get_symbols()[:5]
-    logger.debug("got sp500 symbols")
-    metrics = [
-        'enterpriseValue',
-        'marketCap',
-        'beta',
-        'debtToEquity',
-        'returnOnEquity',
-        "trailingPE",
-        "enterpriseToEbitda",
-        "totalRevenue",
-        "revenueGrowth",
-        "debtToEquity",
-        "operatingCashflow",
-    ]
-    data = dict()
-    logger.debug("starting main loop")
-    for i, symbol in enumerate(sp500_tickers):
-        logger.debug(f"calling symbol num {i}: {symbol}")
-        data[symbol] = get_financial_data(symbol, metrics)
-        PROGRESS = int(((i + 1) / len(sp500_tickers)) * 100)  # Update progress percentage
-        sleep(3)
-
-    # Convert to DataFrame and save to CSV
-    df = pd.DataFrame.from_dict(data, orient="index")
-    save_csv(df, OUTPUTS_PATH)
-
-    LAST_UPDATED = datetime.now()  # Update the last updated time
-    PROGRESS = 100  # Mark progress as complete
-    IS_UPDATING = False  # Mark as not updating anymore
-
-
-@app.route('/')
-def index():
-    global LAST_UPDATED, PROGRESS, IS_UPDATING
-    latest_file, last_updated_time = get_last_updated_time(OUTPUTS_PATH)
-    if not last_updated_time:
-        return render_template(
-            'index.html',
-            last_updated="Never",
-            time_since_update="N/A",
-            download_filename=None,
-            is_updating=IS_UPDATING,
-            progress=PROGRESS,
+        logging.basicConfig(
+            filename=log_file,
+            level=logging.DEBUG,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            filemode='w'
         )
-    if not LAST_UPDATED:
-        LAST_UPDATED = last_updated_time
+        self.logger = logging.getLogger("app_log")
+        self.logger.setLevel(logging.DEBUG)
 
-    time_since_update = datetime.now() - last_updated_time
+        self._setup_routes()
 
-    return render_template(
-        'index.html',
-        last_updated=last_updated_time.strftime("%Y-%m-%d %H:%M:%S"),
-        time_since_update=str(time_since_update).split('.')[0],  # Remove microseconds
-        download_filename=latest_file,
-        is_updating=IS_UPDATING,
-        progress=PROGRESS,
-    )
+    def _setup_routes(self):
+        self.app.add_url_rule('/', 'index', self.index)
+        self.app.add_url_rule('/download/<filename>', 'download', self.download)
+        self.app.add_url_rule('/start-update', 'start_update', self.start_update, methods=['POST'])
+        self.app.add_url_rule('/progress', 'progress', self.progress_status)
 
+    def get_data(self):
+        self.logger.debug("Starting data update")
+        self.is_updating = True
+        self.progress = 0
 
-@app.route('/download/<filename>')
-def download(filename):
-    file_path = os.path.join(OUTPUTS_PATH, filename)
-    if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
-    else:
+        sp500_tickers = get_symbols()
+        self.logger.debug("Got S&P 500 symbols")
+        metrics = [
+            'enterpriseValue', 'marketCap', 'beta', 'debtToEquity', 'returnOnEquity',
+            "trailingPE", "enterpriseToEbitda", "totalRevenue", "revenueGrowth",
+            "debtToEquity", "operatingCashflow"
+        ]
+        data = {}
+        self.logger.debug("Starting data fetch loop")
+        for i, symbol in enumerate(sp500_tickers):
+            self.logger.debug(f"Fetching data for symbol {i}: {symbol}")
+            data[symbol] = get_financial_data(symbol, metrics)
+            self.progress = int(((i + 1) / len(sp500_tickers)) * 100)
+            sleep(3)
+
+        self.logger.debug("Finished fetching data, saving to csv")
+        df = pd.DataFrame.from_dict(data, orient="index")
+        save_csv(df, self.output_path)
+
+        self.last_updated = datetime.now()
+        self.progress = 100
+        self.is_updating = False
+        self.logger.debug("Finished updating data")
+
+    def index(self):
+        latest_file, last_updated_time = get_last_updated_time(self.output_path)
+        if not last_updated_time:
+            return render_template(
+                'index.html', last_updated="Never", time_since_update="N/A",
+                download_filename=None, is_updating=self.is_updating, progress=self.progress
+            )
+        if not self.last_updated:
+            self.last_updated = last_updated_time
+
+        time_since_update = datetime.now() - last_updated_time
+        return render_template(
+            'index.html', last_updated=last_updated_time.strftime("%Y-%m-%d %H:%M:%S"),
+            time_since_update=str(time_since_update).split('.')[0],
+            download_filename=latest_file, is_updating=self.is_updating, progress=self.progress
+        )
+
+    def download(self, filename):
+        file_path = os.path.join(self.output_path, filename)
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True)
         return jsonify({"error": "File not found"}), 404
 
-
-
-@app.route('/start-update', methods=['POST'])
-def start_update():
-    global IS_UPDATING
-    if not IS_UPDATING:  # Only allow one update at a time
-        threading.Thread(target=get_data).start()  # Run `get_data` in a separate thread
-        return jsonify({"status": "Update started"})
-    else:
+    def start_update(self):
+        if not self.is_updating:
+            threading.Thread(target=self.get_data).start()
+            return jsonify({"status": "Update started"})
         return jsonify({"status": "Update already in progress"}), 400
 
+    def progress_status(self):
+        return jsonify({"progress": self.progress, "is_updating": self.is_updating})
 
-@app.route('/progress')
-def progress():
-    global PROGRESS, IS_UPDATING
-    return jsonify({"progress": PROGRESS, "is_updating": IS_UPDATING})
+
+data_updater = DataUpdater(
+    "/home/melniknoob/Investor/static/reports/",
+    "/home/melniknoob/Investor/logfile.log"
+    )
+app = data_updater.app
